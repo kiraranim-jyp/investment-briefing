@@ -7,27 +7,26 @@ import type { Briefing, Company, DisclosureItem, NewsItem } from "./types";
 export async function buildBriefing(company: Company): Promise<Briefing> {
   const partialFailures: string[] = [];
 
-  const newsResult = await Promise.allSettled([
+  const [newsResult, disclosureResult] = await Promise.allSettled([
     fetchGoogleNews(company.name, company.market === "KR" ? "ko" : "en"),
-  ]);
-  let news: NewsItem[] = [];
-  if (newsResult[0].status === "fulfilled") {
-    news = newsResult[0].value;
-  } else {
-    partialFailures.push(`뉴스 수집 실패: ${newsResult[0].reason?.message ?? newsResult[0].reason}`);
-  }
-
-  const disclosureResult = await Promise.allSettled([
     company.market === "KR"
       ? fetchDartDisclosures(company.name)
       : fetchSecFilings(company.name),
   ]);
+
+  let news: NewsItem[] = [];
+  if (newsResult.status === "fulfilled") {
+    news = newsResult.value;
+  } else {
+    partialFailures.push(`뉴스 수집 실패: ${newsResult.reason?.message ?? newsResult.reason}`);
+  }
+
   let disclosures: DisclosureItem[] = [];
-  if (disclosureResult[0].status === "fulfilled") {
-    disclosures = disclosureResult[0].value;
+  if (disclosureResult.status === "fulfilled") {
+    disclosures = disclosureResult.value;
   } else {
     partialFailures.push(
-      `공시 수집 실패: ${disclosureResult[0].reason?.message ?? disclosureResult[0].reason}`
+      `공시 수집 실패: ${disclosureResult.reason?.message ?? disclosureResult.reason}`
     );
   }
 

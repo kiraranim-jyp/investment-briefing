@@ -3,6 +3,8 @@ import { getLatestGuide, listWatchlist } from "@/lib/store/kv";
 import { generateGuideForEntry } from "@/lib/guide";
 import { buildMarketOverview } from "@/lib/market";
 
+export const maxDuration = 30;
+
 export async function GET(
   _req: Request,
   { params }: { params: { companyId: string } }

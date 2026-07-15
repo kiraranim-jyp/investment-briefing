@@ -2,6 +2,8 @@ import { NextResponse } from "next/server";
 import { buildBriefing } from "@/lib/briefing";
 import type { Market } from "@/lib/types";
 
+export const maxDuration = 30;
+
 export async function POST(req: Request) {
   const body = await req.json().catch(() => null);
   const name = body?.name?.trim();
