@@ -1,6 +1,6 @@
 import JSZip from "jszip";
 import type { DisclosureItem } from "../types";
-import { fetchWithTimeout } from "../utils";
+import { fetchWithTimeout, withTimeout } from "../utils";
 
 interface CorpCodeEntry {
   corpCode: string;
@@ -24,31 +24,30 @@ function parseCorpCodeXml(xml: string): CorpCodeEntry[] {
   return entries;
 }
 
-async function loadCorpCodes(apiKey: string): Promise<CorpCodeEntry[]> {
-  if (corpCodeCache && Date.now() - corpCodeCache.fetchedAt < CORP_CODE_TTL_MS) {
-    console.log("[dart] corpCode cache hit");
-    return corpCodeCache.entries;
-  }
-  const t0 = Date.now();
-  console.log("[dart] fetching corpCode.xml...");
+async function loadCorpCodesInner(apiKey: string): Promise<CorpCodeEntry[]> {
   const res = await fetchWithTimeout(
     `https://opendart.fss.or.kr/api/corpCode.xml?crtfc_key=${apiKey}`,
     {},
     15000
   );
-  console.log("[dart] fetch headers received after ms:", Date.now() - t0, "status:", res.status);
   if (!res.ok) throw new Error(`DART corpCode 요청 실패 (${res.status})`);
 
+  // fetchWithTimeout의 abort는 fetch()가 resolve(=헤더 수신)되는 순간 해제되므로, 본문을 읽는
+  // 이 시점부터는 별도 보호가 없다. DART corpCode.xml은 헤더는 금방 오지만 3~4MB 본문 전송이
+  // 아주 느리거나 멈추는 경우가 있어(관측됨), 이 함수 전체를 바깥에서 withTimeout으로 감싼다.
   const buf = await res.arrayBuffer();
-  console.log("[dart] arrayBuffer read after ms:", Date.now() - t0, "bytes:", buf.byteLength);
-
   const zip = await JSZip.loadAsync(buf);
   const xmlFile = zip.file("CORPCODE.xml");
   if (!xmlFile) throw new Error("DART corpCode.xml 파싱 실패: CORPCODE.xml 없음");
   const xml = await xmlFile.async("text");
-  console.log("[dart] unzip done after ms:", Date.now() - t0, "xml length:", xml.length);
-  const entries = parseCorpCodeXml(xml);
-  console.log("[dart] regex parse done after ms:", Date.now() - t0, "entries:", entries.length);
+  return parseCorpCodeXml(xml);
+}
+
+async function loadCorpCodes(apiKey: string): Promise<CorpCodeEntry[]> {
+  if (corpCodeCache && Date.now() - corpCodeCache.fetchedAt < CORP_CODE_TTL_MS) {
+    return corpCodeCache.entries;
+  }
+  const entries = await withTimeout(loadCorpCodesInner(apiKey), 20000, "DART corpCode 다운로드/파싱");
   corpCodeCache = { entries, fetchedAt: Date.now() };
   return entries;
 }
@@ -90,7 +89,7 @@ export async function fetchDartDisclosures(
 
   const res = await fetchWithTimeout(url);
   if (!res.ok) throw new Error(`DART 공시목록 요청 실패 (${res.status})`);
-  const data = await res.json();
+  const data = await withTimeout(res.json(), 10000, "DART 공시목록 응답 파싱");
 
   if (data.status !== "000") {
     if (data.status === "013") return []; // 조회된 데이터 없음
