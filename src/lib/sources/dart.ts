@@ -47,7 +47,7 @@ async function loadCorpCodes(apiKey: string): Promise<CorpCodeEntry[]> {
   if (corpCodeCache && Date.now() - corpCodeCache.fetchedAt < CORP_CODE_TTL_MS) {
     return corpCodeCache.entries;
   }
-  const entries = await withTimeout(loadCorpCodesInner(apiKey), 20000, "DART corpCode 다운로드/파싱");
+  const entries = await withTimeout(loadCorpCodesInner(apiKey), 10000, "DART corpCode 다운로드/파싱");
   corpCodeCache = { entries, fetchedAt: Date.now() };
   return entries;
 }
