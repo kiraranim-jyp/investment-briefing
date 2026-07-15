@@ -1,5 +1,6 @@
 import Anthropic from "@anthropic-ai/sdk";
 import type {
+  BuyStrategy,
   Company,
   CompanyProfile,
   DisclosureItem,
@@ -13,6 +14,7 @@ import type {
   NewsSentiment,
   QuarterlyFinancialPoint,
   ScenarioSet,
+  SellStrategy,
   TechnicalIndicators,
 } from "../types";
 
@@ -134,8 +136,10 @@ export async function generateInvestmentGuide(params: {
   previousHeadline?: string;
   previousCheckpoints?: string[];
   sources: { news: NewsItem[]; disclosures: DisclosureItem[] };
+  alerts?: string[]; // 목표가/52주 신고가·신저가 근접 등 — 호출측에서 숫자 비교로 계산해 그대로 전달 (AI 생성 아님)
 }): Promise<InvestmentGuide> {
-  const { company, briefing, marketSummary, industrySummary, previousHeadline, previousCheckpoints, sources } = params;
+  const { company, briefing, marketSummary, industrySummary, previousHeadline, previousCheckpoints, sources, alerts } =
+    params;
   const system =
     "너는 개인 투자자 본인을 위해 작성하는 투자 리서치 애널리스트다. 모든 판단에는 근거를 함께 표기한다. 반드시 JSON만 출력한다.";
   const prompt = `기업: ${company.name} (${company.market})
@@ -180,6 +184,7 @@ ${previousCheckpoints?.length ? `어제 체크포인트: ${previousCheckpoints.j
     checkpoints: result.checkpoints,
     opinion: result.opinion,
     whatsNew: result.whatsNew,
+    alerts: alerts ?? [],
     sources,
   };
 }
@@ -207,6 +212,8 @@ export interface StockReportAiResult {
   opinionReason: string;
   newsSentiment: NewsSentiment;
   scenarios: ScenarioSet;
+  buyStrategy: BuyStrategy;
+  sellStrategy: SellStrategy;
 }
 
 /**
@@ -314,8 +321,25 @@ ${supplyDemandAvailable ? "" : "주의: 외국인/기관 수급 실데이터는 
     "bull": { "targetPrice": 숫자 (현재가 기준 통화, 알 수 없으면 null), "rationale": "낙관 시나리오 근거 1~2문장" },
     "base": { "targetPrice": 숫자, "rationale": "기본 시나리오 근거 1~2문장" },
     "bear": { "targetPrice": 숫자, "rationale": "비관 시나리오 근거 1~2문장" }
+  },
+  "buyStrategy": {
+    "tranches": [
+      { "price": 현재가보다 낮은 1차 매수가, "weightPct": 비중(%), "rationale": "1~2문장" },
+      { "price": 2차 매수가 (1차보다 낮음), "weightPct": 비중(%), "rationale": "1~2문장" },
+      { "price": 3차 매수가 (2차보다 낮음), "weightPct": 비중(%), "rationale": "1~2문장" }
+    ]
+  },
+  "sellStrategy": {
+    "takeProfitTranches": [
+      { "price": 1차 익절가 (현재가보다 높음), "weightPct": 비중(%), "rationale": "1~2문장" },
+      { "price": 2차 익절가 (1차보다 높음), "weightPct": 비중(%), "rationale": "1~2문장" }
+    ],
+    "stopLossPrice": 손절가 (현재가보다 낮음, 알 수 없으면 null),
+    "stopLossRationale": "손절 기준 1문장"
   }
-}`;
+}
+buyStrategy.tranches의 weightPct 합은 100, sellStrategy.takeProfitTranches의 weightPct 합은 100이어야 한다.
+가격 데이터(현재가/52주 레인지/기술적 지표)가 없으면 price를 null로 두고 rationale에 그 사실을 명시할 것.`;
 
   const result = await askForJson<{
     strengths: string[];
@@ -332,7 +356,9 @@ ${supplyDemandAvailable ? "" : "주의: 외국인/기관 수급 실데이터는 
     opinionReason: string;
     newsSentiment: NewsSentiment;
     scenarios: ScenarioSet;
-  }>(system, prompt, 2200);
+    buyStrategy: BuyStrategy;
+    sellStrategy: SellStrategy;
+  }>(system, prompt, 2800);
 
   const { financial, technical, news, supplyDemand, growth, valuation } = result.scores;
   const total = Math.round((financial + technical + news + supplyDemand + growth + valuation) / 6);
@@ -355,5 +381,7 @@ ${supplyDemandAvailable ? "" : "주의: 외국인/기관 수급 실데이터는 
     opinionReason: result.opinionReason,
     newsSentiment: result.newsSentiment,
     scenarios: result.scenarios,
+    buyStrategy: result.buyStrategy,
+    sellStrategy: result.sellStrategy,
   };
 }

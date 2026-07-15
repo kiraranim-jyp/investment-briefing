@@ -104,6 +104,17 @@ export default function GuideDetailPage({ params }: { params: { companyId: strin
             </button>
           </div>
 
+          {guide.alerts.length > 0 && (
+            <Card className="border-amber-800 bg-amber-950/30">
+              <div className="text-xs font-semibold text-amber-400 mb-2">🔔 알림</div>
+              <ul className="list-disc list-inside text-sm text-amber-200 space-y-1">
+                {guide.alerts.map((a, i) => (
+                  <li key={i}>{a}</li>
+                ))}
+              </ul>
+            </Card>
+          )}
+
           {guide.whatsNew.length > 0 && (
             <Card className="border-brand/50">
               <div className="text-xs font-semibold text-brand mb-2">어제와 달라진 점</div>

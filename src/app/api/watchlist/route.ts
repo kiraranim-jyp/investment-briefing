@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 import { addToWatchlist, getLatestGuide, listWatchlist, removeFromWatchlist } from "@/lib/store/kv";
 import { estimateSector } from "@/lib/ai/claude";
 import { companyId } from "@/lib/utils";
-import type { Market } from "@/lib/types";
+import type { Market, WatchlistEntry } from "@/lib/types";
 
 export async function GET() {
   try {
@@ -24,6 +24,8 @@ export async function POST(req: Request) {
   const name = body?.name?.trim();
   const market: Market = body?.market === "US" ? "US" : "KR";
   const manualSector = body?.sector?.trim();
+  const alertTargetPrice: number | null =
+    typeof body?.alertTargetPrice === "number" && body.alertTargetPrice > 0 ? body.alertTargetPrice : null;
 
   if (!name) {
     return NextResponse.json({ error: "기업명을 입력하세요." }, { status: 400 });
@@ -34,17 +36,42 @@ export async function POST(req: Request) {
     if (!sector) {
       sector = await estimateSector({ name, market }).catch(() => "미분류");
     }
-    const entry = {
+    const entry: WatchlistEntry = {
       companyId: companyId(name, market),
       name,
       market,
       sector,
       addedAt: new Date().toISOString(),
+      alertTargetPrice,
     };
     await addToWatchlist(entry);
     return NextResponse.json(entry, { status: 201 });
   } catch (err: any) {
     return NextResponse.json({ error: err.message ?? "등록 실패" }, { status: 500 });
+  }
+}
+
+// 목표가 알림 설정/변경 (등록된 워치리스트 항목의 alertTargetPrice만 갱신)
+export async function PATCH(req: Request) {
+  const body = await req.json().catch(() => null);
+  const id = body?.companyId;
+  if (!id) {
+    return NextResponse.json({ error: "companyId가 필요합니다." }, { status: 400 });
+  }
+  const alertTargetPrice: number | null =
+    typeof body?.alertTargetPrice === "number" && body.alertTargetPrice > 0 ? body.alertTargetPrice : null;
+
+  try {
+    const entries = await listWatchlist();
+    const existing = entries.find((e) => e.companyId === id);
+    if (!existing) {
+      return NextResponse.json({ error: "워치리스트에 없는 기업입니다." }, { status: 404 });
+    }
+    const updated: WatchlistEntry = { ...existing, alertTargetPrice };
+    await addToWatchlist(updated);
+    return NextResponse.json(updated);
+  } catch (err: any) {
+    return NextResponse.json({ error: err.message ?? "알림 설정 실패" }, { status: 500 });
   }
 }
 

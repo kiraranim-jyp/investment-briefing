@@ -33,6 +33,11 @@ function guideCardHtml(guide: InvestmentGuide): string {
   <div style="border:1px solid #E4E7EC;border-radius:12px;padding:20px;margin-bottom:16px;">
     <div style="font-size:12px;color:#1454FF;font-weight:600;">${escapeHtml(guide.company.name)} · ${guide.company.market}</div>
     <div style="font-size:17px;font-weight:700;margin:6px 0 10px;color:#0B0E14;">${escapeHtml(guide.headline)}</div>
+    ${
+      guide.alerts.length
+        ? `<div style="margin-bottom:10px;padding:8px 10px;background:#FFF4E5;border-radius:8px;font-size:12px;color:#8A5A00;">🔔 ${escapeHtml(guide.alerts.join(" · "))}</div>`
+        : ""
+    }
     <p style="font-size:14px;color:#333;line-height:1.6;">${escapeHtml(guide.marketContext)}</p>
     ${
       guide.whatsNew.length

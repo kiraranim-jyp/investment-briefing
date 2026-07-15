@@ -22,6 +22,9 @@ export function Header() {
           <Link href="/watchlist" className="text-gray-300 hover:text-white">
             워치리스트
           </Link>
+          <Link href="/compare" className="text-gray-300 hover:text-white">
+            종목비교
+          </Link>
         </nav>
       </div>
       <div className="md:hidden px-4 pb-3">

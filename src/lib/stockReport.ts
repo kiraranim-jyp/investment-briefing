@@ -175,6 +175,8 @@ export async function buildStockReport(company: Company, useCache = true): Promi
       opinionReason: "AI 리포트를 생성하지 못했습니다. 데이터 부족으로 보수적 점수를 표시합니다.",
       newsSentiment: null,
       scenarios: null,
+      buyStrategy: null,
+      sellStrategy: null,
     };
   }
 
@@ -197,6 +199,8 @@ export async function buildStockReport(company: Company, useCache = true): Promi
     earningsCalendar,
     newsSentiment: ai.newsSentiment,
     scenarios: ai.scenarios,
+    buyStrategy: ai.buyStrategy,
+    sellStrategy: ai.sellStrategy,
     briefing,
     partialFailures,
   };

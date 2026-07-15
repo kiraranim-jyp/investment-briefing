@@ -75,6 +75,7 @@ export interface InvestmentGuide {
   checkpoints: string[];
   opinion?: string;
   whatsNew: string[];
+  alerts: string[]; // 목표가 도달/52주 신고가·신저가 근접 등 — 매일 08:30 모닝메일 생성 시 1회 점검 (실시간 아님)
   sources: {
     news: NewsItem[];
     disclosures: DisclosureItem[];
@@ -87,6 +88,7 @@ export interface WatchlistEntry {
   market: Market;
   sector: string;
   addedAt: string;
+  alertTargetPrice: number | null; // 사용자가 설정한 목표가. 모닝메일 생성 시 1일 1회 체크
 }
 
 export interface MailLog {
@@ -170,6 +172,22 @@ export interface ScenarioSet {
   bear: ScenarioTarget;
 }
 
+export interface BuyTranche {
+  price: number | null;
+  weightPct: number; // 해당 단계에 배분할 비중 (%), 3단계 합 100
+  rationale: string;
+}
+
+export interface BuyStrategy {
+  tranches: BuyTranche[]; // 1~3차 분할매수
+}
+
+export interface SellStrategy {
+  takeProfitTranches: BuyTranche[]; // 익절 단계 (price/weightPct/rationale 재사용)
+  stopLossPrice: number | null;
+  stopLossRationale: string;
+}
+
 export interface StockReport {
   company: Company;
   generatedAt: string;
@@ -189,6 +207,8 @@ export interface StockReport {
   earningsCalendar: EarningsCalendar | null;
   newsSentiment: NewsSentiment | null;
   scenarios: ScenarioSet | null;
+  buyStrategy: BuyStrategy | null;
+  sellStrategy: SellStrategy | null;
   briefing: Briefing;
   partialFailures: string[];
 }

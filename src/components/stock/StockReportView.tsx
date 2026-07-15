@@ -14,6 +14,7 @@ import { QuarterlyFinancialsCard } from "./QuarterlyFinancialsCard";
 import { EarningsCalendarCard } from "./EarningsCalendarCard";
 import { NewsSentimentCard } from "./NewsSentimentCard";
 import { ScenarioCard } from "./ScenarioCard";
+import { BuySellStrategyCard } from "./BuySellStrategyCard";
 import type { StockReport } from "@/lib/types";
 
 export function StockReportView({ report }: { report: StockReport }) {
@@ -107,6 +108,12 @@ export function StockReportView({ report }: { report: StockReport }) {
         <NewsSentimentCard sentiment={report.newsSentiment} />
         <ScenarioCard scenarios={report.scenarios} currency={profile.currency} />
       </div>
+
+      <BuySellStrategyCard
+        buyStrategy={report.buyStrategy}
+        sellStrategy={report.sellStrategy}
+        currency={profile.currency}
+      />
 
       <BriefingDetails briefing={report.briefing} />
     </div>
