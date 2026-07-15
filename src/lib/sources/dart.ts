@@ -26,20 +26,29 @@ function parseCorpCodeXml(xml: string): CorpCodeEntry[] {
 
 async function loadCorpCodes(apiKey: string): Promise<CorpCodeEntry[]> {
   if (corpCodeCache && Date.now() - corpCodeCache.fetchedAt < CORP_CODE_TTL_MS) {
+    console.log("[dart] corpCode cache hit");
     return corpCodeCache.entries;
   }
+  const t0 = Date.now();
+  console.log("[dart] fetching corpCode.xml...");
   const res = await fetchWithTimeout(
     `https://opendart.fss.or.kr/api/corpCode.xml?crtfc_key=${apiKey}`,
     {},
     15000
   );
+  console.log("[dart] fetch headers received after ms:", Date.now() - t0, "status:", res.status);
   if (!res.ok) throw new Error(`DART corpCode 요청 실패 (${res.status})`);
 
-  const zip = await JSZip.loadAsync(await res.arrayBuffer());
+  const buf = await res.arrayBuffer();
+  console.log("[dart] arrayBuffer read after ms:", Date.now() - t0, "bytes:", buf.byteLength);
+
+  const zip = await JSZip.loadAsync(buf);
   const xmlFile = zip.file("CORPCODE.xml");
   if (!xmlFile) throw new Error("DART corpCode.xml 파싱 실패: CORPCODE.xml 없음");
   const xml = await xmlFile.async("text");
+  console.log("[dart] unzip done after ms:", Date.now() - t0, "xml length:", xml.length);
   const entries = parseCorpCodeXml(xml);
+  console.log("[dart] regex parse done after ms:", Date.now() - t0, "entries:", entries.length);
   corpCodeCache = { entries, fetchedAt: Date.now() };
   return entries;
 }
