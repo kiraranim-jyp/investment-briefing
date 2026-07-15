@@ -3,7 +3,9 @@ import { getLatestGuide, listWatchlist } from "@/lib/store/kv";
 import { generateGuideForEntry } from "@/lib/guide";
 import { buildMarketOverview } from "@/lib/market";
 
-export const maxDuration = 30;
+// buildBriefing + buildIndustryTrend + generateInvestmentGuide = 최대 3회 순차 Claude 호출이
+// 발생할 수 있어 여유를 둔다 (stock-report와 동일한 이유, README 6장 참고).
+export const maxDuration = 60;
 
 export async function GET(
   _req: Request,

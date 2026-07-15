@@ -2,7 +2,9 @@ import { NextResponse } from "next/server";
 import { buildStockReport } from "@/lib/stockReport";
 import type { Market } from "@/lib/types";
 
-export const maxDuration = 30;
+// buildBriefing(뉴스/공시 AI 요약) + generateStockReport(스코어링 AI 호출) 두 번의 순차 Claude
+// 호출에 DART/Yahoo 조회까지 더해지면 30초에 근접/초과하는 경우가 있어 여유를 둔다.
+export const maxDuration = 60;
 
 export async function POST(req: Request) {
   const body = await req.json().catch(() => null);
