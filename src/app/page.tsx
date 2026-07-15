@@ -2,30 +2,30 @@
 
 import { useState } from "react";
 import { SearchForm } from "@/components/SearchForm";
-import { BriefingResult } from "@/components/BriefingResult";
+import { StockReportView } from "@/components/stock/StockReportView";
 import { CardSkeleton } from "@/components/ui/Skeleton";
 import { useToast } from "@/components/ui/Toaster";
-import type { Briefing, Market } from "@/lib/types";
+import type { Market, StockReport } from "@/lib/types";
 
 export default function HomePage() {
-  const [briefing, setBriefing] = useState<Briefing | null>(null);
+  const [report, setReport] = useState<StockReport | null>(null);
   const [loading, setLoading] = useState(false);
   const toast = useToast();
 
   async function handleSearch(name: string, market: Market) {
     setLoading(true);
-    setBriefing(null);
+    setReport(null);
     try {
-      const res = await fetch("/api/briefing", {
+      const res = await fetch("/api/stock-report", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ name, market }),
       });
       const data = await res.json();
-      if (!res.ok) throw new Error(data.error ?? "브리핑 조회에 실패했습니다.");
-      setBriefing(data);
+      if (!res.ok) throw new Error(data.error ?? "투자 리포트 조회에 실패했습니다.");
+      setReport(data);
     } catch (err: any) {
-      toast.push(err.message ?? "브리핑 조회에 실패했습니다.", "error");
+      toast.push(err.message ?? "투자 리포트 조회에 실패했습니다.", "error");
     } finally {
       setLoading(false);
     }
@@ -34,9 +34,9 @@ export default function HomePage() {
   return (
     <div className="space-y-8">
       <div>
-        <h1 className="text-2xl font-bold text-white mb-1">즉시조회 브리핑</h1>
+        <h1 className="text-2xl font-bold text-white mb-1">AI 투자 리포트</h1>
         <p className="text-sm text-gray-400">
-          관심 기업명을 입력하면 뉴스·공시를 즉시 모아 요약해드립니다.
+          관심 기업명을 입력하면 시세·재무·뉴스·공시를 종합한 AI 투자 리포트를 즉시 생성합니다.
         </p>
       </div>
 
@@ -49,7 +49,7 @@ export default function HomePage() {
         </div>
       )}
 
-      {!loading && briefing && <BriefingResult briefing={briefing} />}
+      {!loading && report && <StockReportView report={report} />}
     </div>
   );
 }

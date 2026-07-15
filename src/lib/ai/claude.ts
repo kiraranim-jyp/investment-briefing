@@ -1,9 +1,12 @@
 import Anthropic from "@anthropic-ai/sdk";
 import type {
   Company,
+  CompanyProfile,
   DisclosureItem,
   IndexQuote,
   InvestmentGuide,
+  InvestmentOpinion,
+  InvestmentScoreBreakdown,
   MacroIndicator,
   NewsItem,
 } from "../types";
@@ -173,5 +176,119 @@ ${previousCheckpoints?.length ? `어제 체크포인트: ${previousCheckpoints.j
     opinion: result.opinion,
     whatsNew: result.whatsNew,
     sources,
+  };
+}
+
+function ratingFromScore(total: number): InvestmentScoreBreakdown["rating"] {
+  if (total >= 90) return "적극매수";
+  if (total >= 80) return "매수";
+  if (total >= 70) return "관망";
+  if (total >= 60) return "비추천";
+  return "위험";
+}
+
+function opinionFromScore(total: number): InvestmentOpinion {
+  if (total >= 80) return "매수";
+  if (total >= 60) return "관망";
+  return "주의";
+}
+
+export interface StockReportAiResult {
+  strengths: string[];
+  weaknesses: string[];
+  starRating: number;
+  score: InvestmentScoreBreakdown;
+  opinion: InvestmentOpinion;
+  opinionReason: string;
+}
+
+/**
+ * 기업 종합 리포트(강점/약점, 6개 서브점수, 투자의견)를 한 번의 호출로 생성한다.
+ * total/rating/opinion은 AI가 준 서브점수를 코드에서 결정적으로 계산해, 밴드 기준
+ * (90+ 적극매수 / 80+ 매수 / 70+ 관망 / 60+ 비추천 / 60미만 위험)이 항상 일관되게 한다.
+ */
+export async function generateStockReport(params: {
+  company: Company;
+  profile: CompanyProfile;
+  briefing: BriefingSummary;
+  momentum: { available: boolean; summary: string };
+  supplyDemandAvailable: boolean;
+}): Promise<StockReportAiResult> {
+  const { company, profile, briefing, momentum, supplyDemandAvailable } = params;
+  const system =
+    "너는 개인 투자자 본인을 위해 종합 투자 리포트를 작성하는 애널리스트다. " +
+    "판단은 항상 근거(재무 수치, 뉴스, 가격 흐름)와 함께 제시하고, 데이터가 없거나 불확실하면 " +
+    "점수를 보수적으로 매기고 그 사실을 명시한다. 반드시 JSON만 출력한다.";
+
+  const fmtPct = (v: number | null) => (v == null ? "N/A" : `${(v * 100).toFixed(1)}%`);
+  const fmtNum = (v: number | null) => (v == null ? "N/A" : v.toLocaleString());
+
+  const prompt = `기업: ${company.name} (${company.market}) ${profile.ticker ? `[${profile.ticker}]` : ""}
+섹터/산업: ${profile.sector ?? "N/A"} / ${profile.industry ?? "N/A"}
+현재가: ${fmtNum(profile.price)} ${profile.currency ?? ""} (52주 고점 ${fmtNum(
+    profile.fiftyTwoWeekHigh
+  )} / 저점 ${fmtNum(profile.fiftyTwoWeekLow)})
+PER: ${fmtNum(profile.per)}, PBR: ${fmtNum(profile.pbr)}, ROE: ${fmtPct(profile.roe)}, 배당수익률: ${fmtPct(
+    profile.dividendYield
+  )}, 시가총액: ${fmtNum(profile.marketCap)}
+
+가격 모멘텀: ${momentum.available ? momentum.summary : "데이터 없음 (기술점수는 뉴스/공시 기반으로만 보수적으로 추정)"}
+
+뉴스 요약: ${briefing.newsSummary}
+공시 요약: ${briefing.disclosureSummary}
+최근 트렌드: ${briefing.trends.join(", ") || "없음"}
+
+${supplyDemandAvailable ? "" : "주의: 외국인/기관 수급 실데이터는 제공되지 않음. supplyDemand 점수는 뉴스/공시에 나타난 수급 관련 언급만으로 보수적으로 추정할 것 (근거 부족 시 50점 근처로)."}
+
+아래 JSON 스키마로만 응답해 (각 점수는 0~100 정수):
+{
+  "strengths": ["강점 1", "강점 2", "강점 3"],
+  "weaknesses": ["약점 1", "약점 2"],
+  "starRating": 1~5 정수 (기업 경쟁력 종합 평가),
+  "scores": {
+    "financial": 0~100,
+    "technical": 0~100,
+    "news": 0~100,
+    "supplyDemand": 0~100,
+    "growth": 0~100,
+    "valuation": 0~100
+  },
+  "opinionReason": "종합 의견 3~4문장. 재무/뉴스/가격흐름을 근거로 들어 설명"
+}`;
+
+  const result = await askForJson<{
+    strengths: string[];
+    weaknesses: string[];
+    starRating: number;
+    scores: {
+      financial: number;
+      technical: number;
+      news: number;
+      supplyDemand: number;
+      growth: number;
+      valuation: number;
+    };
+    opinionReason: string;
+  }>(system, prompt);
+
+  const { financial, technical, news, supplyDemand, growth, valuation } = result.scores;
+  const total = Math.round((financial + technical + news + supplyDemand + growth + valuation) / 6);
+
+  return {
+    strengths: result.strengths,
+    weaknesses: result.weaknesses,
+    starRating: Math.max(1, Math.min(5, Math.round(result.starRating))),
+    score: {
+      financial,
+      technical,
+      news,
+      supplyDemand,
+      growth,
+      valuation,
+      total,
+      rating: ratingFromScore(total),
+    },
+    opinion: opinionFromScore(total),
+    opinionReason: result.opinionReason,
   };
 }

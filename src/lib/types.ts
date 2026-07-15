@@ -96,3 +96,54 @@ export interface MailLog {
   companiesIncluded: string[];
   error?: string;
 }
+
+export interface CompanyProfile {
+  ticker: string | null;
+  displayName: string;
+  currency: string | null;
+  price: number | null;
+  fiftyTwoWeekHigh: number | null;
+  fiftyTwoWeekLow: number | null;
+  volume: number | null;
+  per: number | null;
+  pbr: number | null;
+  roe: number | null; // 0~1 비율
+  dividendYield: number | null; // 0~1 비율
+  marketCap: number | null;
+  eps: number | null;
+  sector: string | null;
+  industry: string | null;
+  businessSummary: string | null;
+  partialFailures: string[];
+}
+
+export interface InvestmentScoreBreakdown {
+  financial: number;
+  technical: number;
+  news: number;
+  supplyDemand: number;
+  growth: number;
+  valuation: number;
+  total: number;
+  rating: "적극매수" | "매수" | "관망" | "비추천" | "위험";
+}
+
+export type InvestmentOpinion = "매수" | "관망" | "주의";
+
+export interface StockReport {
+  company: Company;
+  generatedAt: string;
+  profile: CompanyProfile;
+  strengths: string[];
+  weaknesses: string[];
+  starRating: number; // 1~5
+  score: InvestmentScoreBreakdown;
+  scoreIsEstimated: {
+    supplyDemand: boolean; // true면 실제 수급 데이터가 아니라 뉴스 기반 AI 추정치
+    technical: boolean; // true면 가격 히스토리 조회 실패로 AI 정성 추정
+  };
+  opinion: InvestmentOpinion;
+  opinionReason: string;
+  briefing: Briefing;
+  partialFailures: string[];
+}

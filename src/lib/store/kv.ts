@@ -1,11 +1,13 @@
 import { Redis } from "@upstash/redis";
-import type { InvestmentGuide, MailLog, WatchlistEntry } from "../types";
+import type { InvestmentGuide, MailLog, StockReport, WatchlistEntry } from "../types";
 
 const WATCHLIST_SET = "watchlist:ids";
 const watchlistEntryKey = (id: string) => `watchlist:entry:${id}`;
 const guideLatestKey = (id: string) => `guide:latest:${id}`;
+const stockReportKey = (id: string) => `stockreport:${id}`;
 const MAIL_LOG_LIST = "maillog";
 const MAIL_LOG_CAP = 60; // 최근 60일치만 보관
+const STOCK_REPORT_TTL_SECONDS = 6 * 60 * 60; // 6시간 — 장중 재조회 시 AI/데이터 재호출 비용 절감
 
 let redisSingleton: Redis | null = null;
 
@@ -67,4 +69,21 @@ export async function appendMailLog(log: MailLog): Promise<void> {
 
 export async function listMailLogs(limit = 20): Promise<MailLog[]> {
   return kv().lrange<MailLog>(MAIL_LOG_LIST, 0, limit - 1);
+}
+
+// 스톡 리포트 캐싱은 부가 기능이라 Redis 미설정 시에도 조회 자체는 정상 동작해야 한다 (실패를 삼킨다).
+export async function getCachedStockReport(companyId: string): Promise<StockReport | null> {
+  try {
+    return (await kv().get<StockReport>(stockReportKey(companyId))) ?? null;
+  } catch {
+    return null;
+  }
+}
+
+export async function cacheStockReport(companyId: string, report: StockReport): Promise<void> {
+  try {
+    await kv().set(stockReportKey(companyId), report, { ex: STOCK_REPORT_TTL_SECONDS });
+  } catch {
+    // Redis 미설정 시 캐싱만 생략
+  }
 }

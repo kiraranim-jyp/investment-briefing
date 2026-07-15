@@ -5,6 +5,7 @@ import { fetchWithTimeout, withTimeout } from "../utils";
 interface CorpCodeEntry {
   corpCode: string;
   corpName: string;
+  stockCode: string;
 }
 
 let corpCodeCache: { entries: CorpCodeEntry[]; fetchedAt: number } | null = null;
@@ -16,10 +17,11 @@ const CORP_CODE_TTL_MS = 24 * 60 * 60 * 1000; // 하루 캐시 (같은 서버리
 // 직접 추출한다 (로컬 벤치마크 기준 DOM 파싱 대비 약 50배 빠름).
 function parseCorpCodeXml(xml: string): CorpCodeEntry[] {
   const entries: CorpCodeEntry[] = [];
-  const re = /<corp_code>([^<]*)<\/corp_code>\s*<corp_name>([^<]*)<\/corp_name>/g;
+  const re =
+    /<corp_code>([^<]*)<\/corp_code>\s*<corp_name>([^<]*)<\/corp_name>\s*<corp_eng_name>[^<]*<\/corp_eng_name>\s*<stock_code>([^<]*)<\/stock_code>/g;
   let m: RegExpExecArray | null;
   while ((m = re.exec(xml))) {
-    entries.push({ corpCode: m[1], corpName: m[2] });
+    entries.push({ corpCode: m[1], corpName: m[2], stockCode: m[3].trim() });
   }
   return entries;
 }
@@ -52,12 +54,33 @@ async function loadCorpCodes(apiKey: string): Promise<CorpCodeEntry[]> {
   return entries;
 }
 
-function findCorpCode(entries: CorpCodeEntry[], companyName: string): string | null {
+function findCorpEntry(entries: CorpCodeEntry[], companyName: string): CorpCodeEntry | null {
   const target = companyName.trim();
   const exact = entries.find((e) => e.corpName === target);
-  if (exact) return exact.corpCode;
+  if (exact) return exact;
   const partial = entries.find((e) => e.corpName.includes(target));
-  return partial?.corpCode ?? null;
+  return partial ?? null;
+}
+
+function findCorpCode(entries: CorpCodeEntry[], companyName: string): string | null {
+  return findCorpEntry(entries, companyName)?.corpCode ?? null;
+}
+
+/**
+ * krTickers.ts의 수동 큐레이션 목록에 없는 한국 기업의 KRX 종목코드를 DART corp_code
+ * 목록(stock_code 필드)에서 찾는다. 상장사가 아니면(stock_code 공백) null.
+ * DART_API_KEY가 없거나 조회에 실패하면 null을 반환해 상위 레이어가 다른 방법으로 폴백하게 한다.
+ */
+export async function resolveKrStockCodeFromDart(companyName: string): Promise<string | null> {
+  const apiKey = process.env.DART_API_KEY;
+  if (!apiKey) return null;
+  try {
+    const entries = await loadCorpCodes(apiKey);
+    const entry = findCorpEntry(entries, companyName);
+    return entry?.stockCode || null;
+  } catch {
+    return null;
+  }
 }
 
 /**
