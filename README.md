@@ -5,7 +5,7 @@
 트렌드 + 투자가이드를 결합한 메일을 자동 발송하는 개인용 투자 리서치 서비스.
 
 - **Frontend**: Next.js 14 (App Router) + TypeScript + TailwindCSS + Recharts
-- **저장소**: Vercel Marketplace Redis (Upstash, 워치리스트/최신 투자가이드/스톡리포트 캐시/메일 로그)
+- **저장소**: Supabase (Postgres, 워치리스트/최신 투자가이드/스톡리포트 캐시/메일 로그)
 - **AI 요약/스코어링**: Anthropic Claude API
 - **뉴스/공시**: Google News RSS, DART Open API(국내), SEC EDGAR(해외) — 인증 불필요한 소스는 키 없이 바로 동작
 - **시세/재무**: Yahoo Finance (지수, 개별 종목 시세·차트·PER/PBR/ROE 등)
@@ -28,7 +28,7 @@ npm run dev
 `http://localhost:3000` — 즉시조회 화면
 `http://localhost:3000/watchlist` — 워치리스트 관리
 
-키가 없는 항목(예: `ANTHROPIC_API_KEY`, `DART_API_KEY`, `RESEND_API_KEY`, KV)은 해당 기능만
+키가 없는 항목(예: `ANTHROPIC_API_KEY`, `DART_API_KEY`, `RESEND_API_KEY`, Supabase)은 해당 기능만
 부분 실패로 처리되고 나머지는 정상 동작합니다 (예: 뉴스/SEC EDGAR/지수는 키 없이 바로 됨).
 
 ---
@@ -44,16 +44,27 @@ npm run dev
 | `RESEND_API_KEY` | 모닝 메일 발송에 필요 | https://resend.com |
 | `MAIL_FROM` | 모닝 메일 발신자 (Resend에서 도메인 인증 필요) | Resend 대시보드 |
 | `MAIL_TO` | 모닝 메일 수신자 (본인 이메일 고정) | 직접 설정 |
-| `KV_REST_API_URL` / `KV_REST_API_TOKEN` | 워치리스트/가이드 저장에 필수 | Vercel 프로젝트 → Storage → KV 생성 시 자동 발급 |
+| `SUPABASE_URL` / `SUPABASE_SECRET_KEY` | 워치리스트/가이드 저장에 필수 | Supabase 프로젝트 → Project Settings → API |
 | `CRON_SECRET` | 크론 엔드포인트 보호 (배포 시 강력 권장) | 임의 문자열 직접 생성 |
 
-Vercel에 KV를 만든 뒤 `vercel env pull .env.local`로 로컬에 동기화하는 것을 권장합니다.
+`SUPABASE_SECRET_KEY`는 service_role 동급 권한(RLS 우회)이라 서버 코드에서만 쓰고
+`NEXT_PUBLIC_` 접두사를 붙이거나 클라이언트에 노출하지 마세요.
 
 ---
 
-## 3. Vercel 배포
+## 3. Supabase 설정
 
-### 3-1. GitHub 연동 배포 (권장)
+1. https://supabase.com 에서 이 앱 전용 프로젝트를 새로 만듭니다 (다른 프로젝트와 공유하지 않는 것을 권장 — 서로 무관한 앱 데이터가 섞이면 스키마 충돌·오조작 위험이 있습니다).
+2. Supabase 대시보드 → **SQL Editor** → `supabase/daily_alpha_investment_briefing_schema.sql` 내용 전체 실행 (watchlist/guides/stock_report_cache/mail_log 테이블 생성)
+   - ⚠️ 화물차 예약 서비스(truck-grease-reservation) 저장소에도 `supabase/schema.sql`이 있어 파일 검색 시
+     헷갈리기 쉽습니다. 반드시 **investment-briefing 저장소**의 이 파일을 실행하세요.
+3. **Project Settings → API**에서 Project URL과 secret key(또는 legacy service_role key)를 복사해 `SUPABASE_URL` / `SUPABASE_SECRET_KEY`에 입력
+
+---
+
+## 4. Vercel 배포
+
+### 4-1. GitHub 연동 배포 (권장)
 ```bash
 git init
 git add .
@@ -63,23 +74,22 @@ git remote add origin <YOUR_GITHUB_REPO_URL>
 git push -u origin main
 ```
 1. https://vercel.com/new 에서 저장소 Import
-2. **Storage → Marketplace Database Providers → Upstash (Redis)** 로 스토어 생성 후 프로젝트에 연결 (환경변수 자동 주입)
-3. **Settings → Environment Variables** 에 위 표의 나머지 값 입력
-4. Deploy
+2. **Settings → Environment Variables** 에 위 표의 값 입력 (Supabase 값 포함)
+3. Deploy
 
-### 3-2. Cron 확인
+### 4-2. Cron 확인
 `vercel.json`에 정의된 `/api/cron/morning-mail`이 매일 UTC 23:30(KST 08:30, 서머타임 없음 -9시간 고정)에
 자동 호출됩니다. Vercel 대시보드 **Settings → Cron Jobs**에서 실행 이력을 확인할 수 있습니다.
 `CRON_SECRET`을 설정한 경우 Vercel이 자동으로 `Authorization: Bearer <CRON_SECRET>` 헤더를 붙여 호출합니다.
 
-### 3-3. 수동 테스트
+### 4-3. 수동 테스트
 크론을 기다리지 않고 워치리스트 상세 화면에서 "지금 생성하기" 버튼으로 개별 기업의 투자가이드를
 즉시 생성해 확인할 수 있습니다. 메일 전체 발송을 테스트하려면 배포 후
 `GET /api/cron/morning-mail` 에 `Authorization: Bearer <CRON_SECRET>` 헤더를 붙여 직접 호출하세요.
 
 ---
 
-## 4. 폴더 구조
+## 5. 폴더 구조
 
 ```
 src/
@@ -101,17 +111,19 @@ src/
   lib/
     sources/                        # googleNews, dart, secEdgar, indices, yahooFinance, krTickers
     ai/claude.ts                    # 요약/가이드/스톡리포트 생성 프롬프트
-    store/kv.ts                     # Redis(Upstash) 저장소 (워치리스트/가이드/스톡리포트 캐시)
+    store/kv.ts                     # Supabase 저장소 (워치리스트/가이드/스톡리포트 캐시)
     mail/                           # Resend 발송 + HTML 템플릿
     briefing.ts / market.ts / industry.ts / guide.ts / stockReport.ts   # 파이프라인 조합
 ```
 
-## 5. 반영된 기획 변경 사항
+## 6. 반영된 기획 변경 사항
 
 **v0.2 명세 대비**
 - 시장개관에 국내외 지수 외 **매크로 지표(환율, WTI, 미국채 10년 금리)** 추가
 - 투자가이드에 **전일 대비 변경점(`whatsNew`)** 필드 추가 — 매일 같은 내용 반복을 줄이기 위해 어제 브리핑과 비교해 새 이슈만 표시
-- 저장소는 **Vercel Marketplace의 Upstash Redis**로 결정 (Vercel KV는 deprecated 되어 Upstash로 이전됨; 파일 기반은 서버리스에서 영속성 없음, Supabase는 무인증 개인용 목적에는 과함)
+- 저장소는 **Supabase(Postgres)**로 결정 (파일 기반은 서버리스에서 영속성 없음). 초기에는 무인증
+  개인용 목적에 비해 Supabase가 과하다고 보고 Vercel Marketplace Upstash Redis로 시작했으나,
+  이미 익숙한 Supabase 프로젝트를 보유하고 있어 더 간단하게 전환
 - 산업군 태깅은 **AI 자동 추정 + 등록 시 수동 override 가능**
 - 개별 기업/데이터 소스 장애가 전체 파이프라인을 막지 않도록 `Promise.allSettled` 기반 격리 적용 (FR-6, FR-11.5)
 
@@ -124,7 +136,7 @@ src/
 - **외국인/기관 수급 데이터는 무료 소스로 구할 수 없어 이번 스프린트에서 제외** — `supplyDemand`
   점수는 뉴스/공시에 나타난 언급만으로 AI가 보수적으로 추정하며, `scoreIsEstimated.supplyDemand`로
   UI에 "(추정)" 표기해 실데이터와 구분
-- 분석 결과는 Redis에 6시간 TTL로 캐싱 (반복 조회 시 AI/외부 API 재호출 비용 절감)
+- 분석 결과는 Supabase에 6시간 TTL(만료시각 컬럼 비교)로 캐싱 (반복 조회 시 AI/외부 API 재호출 비용 절감)
 
 **Sprint 2 반영**
 - **기술적 지표(RSI14/MACD/볼린저밴드/이동평균)** 추가 — `src/lib/technicalIndicators.ts`에서
@@ -153,7 +165,7 @@ src/
 - 미구현으로 남긴 것: 포트폴리오 비중분석, AI 매매일지/복기 (각각 새로운 사용자 입력·데이터
   모델이 필요해 범위상 다음 라운드로 이월)
 
-## 6. 데이터 소스 관련 제약
+## 7. 데이터 소스 관련 제약
 
 - **한국 기업명 → 티커 매핑**: Yahoo Finance 검색 API가 한글 검색어를 거부해서(400 Bad Request),
   `src/lib/sources/krTickers.ts`에 수동 검증한 대형주 ~40개만 우선 매핑하고, 목록에 없으면 DART
@@ -163,11 +175,11 @@ src/
   요구한다(2024년경 변경). `yahooFinance.ts`에서 매번 크럼을 발급받아 쓰는데, Yahoo가 이 흐름을
   막으면 기업 개요 화면에서 PER/PBR 등이 전부 N/A로 빠질 수 있음(가격/차트는 별도 엔드포인트라 영향 없음).
 - DART corp_code 매핑은 정확한 회사명 또는 부분일치로 검색 — 동명이인 기업이 있으면 오탐 가능
-- DART corpCode.xml(11만+건)은 배포 환경(Vercel icn1)에서 응답 헤더는 빠르지만 본문(3~4MB) 전송이 비정상적으로 느리거나 멈추는 현상이 관측됨 — 원인 미상(DART 서버 측 이슈로 추정). 코드에서 10초 하드 타임아웃으로 격리해 공시만 부분 실패 처리되고 나머지(뉴스/AI 요약)는 정상 응답하도록 방어했지만, 국내 공시 조회 자체는 이 이슈가 해소되기 전까지 자주 실패할 수 있음. 같은 서버리스 인스턴스가 살아있는 동안은 성공 시 메모리 캐시로 재사용됨. Redis에 파싱 결과를 캐싱하면 반복 비용은 줄일 수 있으나 최초 다운로드 지연 자체는 해결되지 않음 (다음 단계: DART 문의 또는 대체 소스 검토)
+- DART corpCode.xml(11만+건)은 배포 환경(Vercel icn1)에서 응답 헤더는 빠르지만 본문(3~4MB) 전송이 비정상적으로 느리거나 멈추는 현상이 관측됨 — 원인 미상(DART 서버 측 이슈로 추정). 코드에서 10초 하드 타임아웃으로 격리해 공시만 부분 실패 처리되고 나머지(뉴스/AI 요약)는 정상 응답하도록 방어했지만, 국내 공시 조회 자체는 이 이슈가 해소되기 전까지 자주 실패할 수 있음. 같은 서버리스 인스턴스가 살아있는 동안은 성공 시 메모리 캐시로 재사용됨. Supabase에 파싱 결과를 캐싱하면 반복 비용은 줄일 수 있으나 최초 다운로드 지연 자체는 해결되지 않음 (다음 단계: DART 문의 또는 대체 소스 검토)
 - Yahoo Finance 비공식 엔드포인트를 사용하므로 응답 스키마가 변경되면 시세/지수 수집이 실패할 수 있음 (부분 실패로 격리되어 있어 전체 장애로는 번지지 않음)
 - Vercel Hobby 플랜은 Cron 최소 주기가 1일 — 요구사항과 일치하지만 플랜을 낮추면 동작하지 않을 수 있음
 
-## 7. Sprint 4 로드맵 (미구현)
+## 8. Sprint 4 로드맵 (미구현)
 
 명세에서 제안된 다음 단계. 필요할 때 별도 세션에서 이어서 진행:
 - Sprint 4: AI 투자 토론(대화형 근거 설명), 반대의견 생성, 신뢰도 표시, 과거 예측 검증(AI 의견 vs 실제 주가),

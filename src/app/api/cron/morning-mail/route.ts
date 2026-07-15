@@ -6,6 +6,9 @@ import { sendMorningMail } from "@/lib/mail/resend";
 import { maskEmail } from "@/lib/utils";
 import type { InvestmentGuide } from "@/lib/types";
 
+// force-dynamic 없으면 빌드 시 정적 응답으로 캐시되어 매일 똑같은(오래된) 결과만 반환할 위험이 있다 —
+// 크론이 매일 진짜로 실행되지 않고 빌드 시점 스냅샷만 도는 심각한 버그가 될 수 있어 명시적으로 강제한다.
+export const dynamic = "force-dynamic";
 export const maxDuration = 120;
 
 function isAuthorized(req: Request): boolean {
