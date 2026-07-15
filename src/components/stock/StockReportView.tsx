@@ -9,6 +9,11 @@ import { OpinionBanner } from "./OpinionBanner";
 import { ScorePanel } from "./ScorePanel";
 import { PriceChart } from "./PriceChart";
 import { CompanyOverviewCard } from "./CompanyOverviewCard";
+import { TechnicalIndicatorsCard } from "./TechnicalIndicatorsCard";
+import { QuarterlyFinancialsCard } from "./QuarterlyFinancialsCard";
+import { EarningsCalendarCard } from "./EarningsCalendarCard";
+import { NewsSentimentCard } from "./NewsSentimentCard";
+import { ScenarioCard } from "./ScenarioCard";
 import type { StockReport } from "@/lib/types";
 
 export function StockReportView({ report }: { report: StockReport }) {
@@ -90,6 +95,18 @@ export function StockReportView({ report }: { report: StockReport }) {
         weaknesses={report.weaknesses}
         starRating={report.starRating}
       />
+
+      <div className="grid gap-4 sm:grid-cols-2">
+        <TechnicalIndicatorsCard technicals={report.technicals} />
+        <EarningsCalendarCard calendar={report.earningsCalendar} />
+      </div>
+
+      <QuarterlyFinancialsCard data={report.quarterlyFinancials} currency={profile.currency} />
+
+      <div className="grid gap-4 sm:grid-cols-2">
+        <NewsSentimentCard sentiment={report.newsSentiment} />
+        <ScenarioCard scenarios={report.scenarios} currency={profile.currency} />
+      </div>
 
       <BriefingDetails briefing={report.briefing} />
     </div>

@@ -3,23 +3,26 @@ import { generateStockReport } from "./ai/claude";
 import { cacheStockReport, getCachedStockReport } from "./store/kv";
 import {
   fetchChartMeta,
-  fetchPriceHistory,
+  fetchQuarterlyFinancialsAndCalendar,
   fetchQuoteFundamentals,
+  fetchTechnicalPriceHistory,
   resolveTicker,
-  type PricePoint,
 } from "./sources/yahooFinance";
+import { computeTechnicalIndicators } from "./technicalIndicators";
 import { companyId } from "./utils";
-import type { Company, CompanyProfile, StockReport } from "./types";
+import type { Company, CompanyProfile, EarningsCalendar, QuarterlyFinancialPoint, StockReport, TechnicalIndicators } from "./types";
 
 function computeMomentumSummary(
   profile: CompanyProfile,
-  points: PricePoint[]
+  closes: number[]
 ): { available: boolean; summary: string } {
-  if (points.length < 2 || profile.price == null) {
+  // 최근 1개월치(약 21거래일)만 잘라서 모멘텀 문구를 만든다.
+  const monthWindow = closes.slice(-21);
+  if (monthWindow.length < 2 || profile.price == null) {
     return { available: false, summary: "" };
   }
-  const first = points[0].close;
-  const last = points[points.length - 1].close;
+  const first = monthWindow[0];
+  const last = monthWindow[monthWindow.length - 1];
   const periodReturnPct = ((last - first) / first) * 100;
 
   const parts: string[] = [`최근 1개월 수익률 ${periodReturnPct >= 0 ? "+" : ""}${periodReturnPct.toFixed(1)}%`];
@@ -35,10 +38,10 @@ function computeMomentumSummary(
     }
   }
 
-  const recentWindow = points.slice(-5);
+  const recentWindow = monthWindow.slice(-5);
   if (recentWindow.length >= 2) {
     const recentReturn =
-      ((recentWindow[recentWindow.length - 1].close - recentWindow[0].close) / recentWindow[0].close) * 100;
+      ((recentWindow[recentWindow.length - 1] - recentWindow[0]) / recentWindow[0]) * 100;
     parts.push(`최근 5거래일 ${recentReturn >= 0 ? "상승" : "하락"} 흐름(${recentReturn >= 0 ? "+" : ""}${recentReturn.toFixed(1)}%)`);
   }
 
@@ -115,16 +118,23 @@ export async function buildStockReport(company: Company, useCache = true): Promi
 
   const [profile, briefing] = await Promise.all([buildCompanyProfile(company), buildBriefing(company)]);
 
-  const points = profile.ticker
-    ? await fetchPriceHistory(profile.ticker, "1M").catch(() => [] as PricePoint[])
-    : [];
+  const [closes, quarterlyData] = await Promise.all([
+    profile.ticker ? fetchTechnicalPriceHistory(profile.ticker).catch(() => [] as number[]) : Promise.resolve([] as number[]),
+    profile.ticker ? fetchQuarterlyFinancialsAndCalendar(profile.ticker).catch(() => null) : Promise.resolve(null),
+  ]);
 
-  const momentum = computeMomentumSummary(profile, points);
-  const supplyDemandAvailable = false; // Sprint 1: 실제 수급 데이터 소스 없음 (뉴스 기반 AI 추정으로 대체)
+  const momentum = computeMomentumSummary(profile, closes);
+  const technicals: TechnicalIndicators | null = computeTechnicalIndicators(closes);
+  const quarterlyFinancials: QuarterlyFinancialPoint[] = quarterlyData?.quarterlyFinancials ?? [];
+  const earningsCalendar: EarningsCalendar | null = quarterlyData?.earningsCalendar ?? null;
+  const supplyDemandAvailable = false; // 실제 수급 데이터 소스 없음 (뉴스 기반 AI 추정으로 대체)
 
   const partialFailures = [...profile.partialFailures, ...briefing.partialFailures];
   if (!momentum.available) {
     partialFailures.push("가격 히스토리를 가져오지 못해 기술점수는 뉴스/공시 기반 추정치입니다.");
+  }
+  if (!quarterlyData) {
+    partialFailures.push("분기 실적/실적발표 일정을 가져오지 못했습니다.");
   }
 
   let ai;
@@ -140,6 +150,10 @@ export async function buildStockReport(company: Company, useCache = true): Promi
       },
       momentum,
       supplyDemandAvailable,
+      technicals,
+      quarterlyFinancials,
+      earningsCalendar,
+      newsForSentiment: briefing.sources.news,
     });
   } catch (err: any) {
     partialFailures.push(`AI 투자 리포트 생성 실패: ${err.message ?? err}`);
@@ -159,6 +173,8 @@ export async function buildStockReport(company: Company, useCache = true): Promi
       },
       opinion: "주의" as const,
       opinionReason: "AI 리포트를 생성하지 못했습니다. 데이터 부족으로 보수적 점수를 표시합니다.",
+      newsSentiment: null,
+      scenarios: null,
     };
   }
 
@@ -176,6 +192,11 @@ export async function buildStockReport(company: Company, useCache = true): Promi
     },
     opinion: ai.opinion,
     opinionReason: ai.opinionReason,
+    technicals,
+    quarterlyFinancials,
+    earningsCalendar,
+    newsSentiment: ai.newsSentiment,
+    scenarios: ai.scenarios,
     briefing,
     partialFailures,
   };

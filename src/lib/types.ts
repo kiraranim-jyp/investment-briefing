@@ -130,6 +130,46 @@ export interface InvestmentScoreBreakdown {
 
 export type InvestmentOpinion = "매수" | "관망" | "주의";
 
+export interface TechnicalIndicators {
+  rsi14: number | null;
+  macd: { value: number; signal: number; histogram: number } | null;
+  bollinger: { upper: number; middle: number; lower: number } | null;
+  sma20: number | null;
+  sma50: number | null;
+  trendLabel: string;
+}
+
+export interface QuarterlyFinancialPoint {
+  quarter: string; // 예: "2026-03-31"
+  revenue: number | null;
+  netIncome: number | null;
+  eps: number | null;
+}
+
+export interface EarningsCalendar {
+  nextEarningsDate: string | null;
+  epsEstimate: number | null;
+  revenueEstimate: number | null;
+}
+
+export interface NewsSentiment {
+  positivePct: number;
+  neutralPct: number;
+  negativePct: number;
+  summary: string;
+}
+
+export interface ScenarioTarget {
+  targetPrice: number | null;
+  rationale: string;
+}
+
+export interface ScenarioSet {
+  bull: ScenarioTarget;
+  base: ScenarioTarget;
+  bear: ScenarioTarget;
+}
+
 export interface StockReport {
   company: Company;
   generatedAt: string;
@@ -144,6 +184,11 @@ export interface StockReport {
   };
   opinion: InvestmentOpinion;
   opinionReason: string;
+  technicals: TechnicalIndicators | null;
+  quarterlyFinancials: QuarterlyFinancialPoint[]; // 최근 4분기, 없으면 빈 배열 (영업이익은 데이터 소스 결측으로 미제공)
+  earningsCalendar: EarningsCalendar | null;
+  newsSentiment: NewsSentiment | null;
+  scenarios: ScenarioSet | null;
   briefing: Briefing;
   partialFailures: string[];
 }

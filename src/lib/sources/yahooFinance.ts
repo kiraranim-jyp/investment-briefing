@@ -1,7 +1,7 @@
 import { fetchWithTimeout, withTimeout } from "../utils";
 import { containsHangul, lookupKrTicker } from "./krTickers";
 import { resolveKrStockCodeFromDart } from "./dart";
-import type { Market } from "../types";
+import type { EarningsCalendar, Market, QuarterlyFinancialPoint } from "../types";
 
 const UA = "Mozilla/5.0 (investment-briefing bot)";
 
@@ -69,9 +69,7 @@ export async function fetchChartMeta(symbol: string): Promise<ChartMeta> {
   };
 }
 
-export async function fetchPriceHistory(symbol: string, range: ChartRange): Promise<PricePoint[]> {
-  const { range: r, interval } = RANGE_PARAMS[range];
-  const result = await fetchChart(symbol, r, interval);
+function extractCloses(result: any): PricePoint[] {
   const timestamps: number[] = result.timestamp ?? [];
   const closes: (number | null)[] = result.indicators?.quote?.[0]?.close ?? [];
   const points: PricePoint[] = [];
@@ -81,6 +79,21 @@ export async function fetchPriceHistory(symbol: string, range: ChartRange): Prom
     points.push({ time: new Date(timestamps[i] * 1000).toISOString(), close });
   }
   return points;
+}
+
+export async function fetchPriceHistory(symbol: string, range: ChartRange): Promise<PricePoint[]> {
+  const { range: r, interval } = RANGE_PARAMS[range];
+  const result = await fetchChart(symbol, r, interval);
+  return extractCloses(result);
+}
+
+/**
+ * RSI(14)/MACD(12,26,9)/SMA50에는 최소 50거래일 이상의 일별 종가가 필요해 차트 탭용
+ * fetchPriceHistory("1M")보다 긴 구간을 별도로 받는다.
+ */
+export async function fetchTechnicalPriceHistory(symbol: string): Promise<number[]> {
+  const result = await fetchChart(symbol, "6mo", "1d");
+  return extractCloses(result).map((p) => p.close);
 }
 
 let crumbCache: { cookie: string; crumb: string; fetchedAt: number } | null = null;
@@ -154,6 +167,68 @@ export async function fetchQuoteFundamentals(symbol: string): Promise<QuoteFunda
       industry: r.summaryProfile?.industry ?? null,
       longBusinessSummary: r.summaryProfile?.longBusinessSummary ?? null,
     };
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Yahoo의 incomeStatementHistoryQuarterly는 costOfRevenue/grossProfit/operatingIncome을
+ * 전부 0으로 반환한다(관측된 데이터 결측 — Yahoo 측 문제로 추정). totalRevenue/netIncome은
+ * 정상 값이 오므로 그 둘과, earningsHistory의 EPS만 신뢰해 사용한다. 영업이익은 제공하지 않는다.
+ */
+export async function fetchQuarterlyFinancialsAndCalendar(
+  symbol: string
+): Promise<{ quarterlyFinancials: QuarterlyFinancialPoint[]; earningsCalendar: EarningsCalendar | null } | null> {
+  const session = await getCrumbSession();
+  if (!session) return null;
+
+  const modules = "calendarEvents,earningsHistory,incomeStatementHistoryQuarterly";
+  const url = `https://query1.finance.yahoo.com/v10/finance/quoteSummary/${encodeURIComponent(
+    symbol
+  )}?modules=${modules}&crumb=${encodeURIComponent(session.crumb)}`;
+
+  try {
+    const res = await fetchWithTimeout(
+      url,
+      { headers: { "User-Agent": UA, Cookie: session.cookie } },
+      10000
+    );
+    if (!res.ok) return null;
+    const json = await withTimeout(res.json(), 8000, "Yahoo 실적/캘린더 응답 파싱");
+    const r = json?.quoteSummary?.result?.[0];
+    if (!r) return null;
+
+    const num = (v: any): number | null => (typeof v?.raw === "number" ? v.raw : null);
+
+    const epsByQuarter = new Map<string, number | null>();
+    for (const h of r.earningsHistory?.history ?? []) {
+      const q = h.quarter?.fmt;
+      if (q) epsByQuarter.set(q, num(h.epsActual));
+    }
+
+    const quarterlyFinancials: QuarterlyFinancialPoint[] = (
+      r.incomeStatementHistoryQuarterly?.incomeStatementHistory ?? []
+    ).map((entry: any) => {
+      const quarter = entry.endDate?.fmt ?? "";
+      return {
+        quarter,
+        revenue: num(entry.totalRevenue),
+        netIncome: num(entry.netIncome),
+        eps: epsByQuarter.get(quarter) ?? null,
+      };
+    });
+
+    const earningsInfo = r.calendarEvents?.earnings;
+    const earningsCalendar: EarningsCalendar | null = earningsInfo
+      ? {
+          nextEarningsDate: earningsInfo.earningsDate?.[0]?.fmt ?? null,
+          epsEstimate: num(earningsInfo.earningsAverage),
+          revenueEstimate: num(earningsInfo.revenueAverage),
+        }
+      : null;
+
+    return { quarterlyFinancials, earningsCalendar };
   } catch {
     return null;
   }

@@ -3,12 +3,17 @@ import type {
   Company,
   CompanyProfile,
   DisclosureItem,
+  EarningsCalendar,
   IndexQuote,
   InvestmentGuide,
   InvestmentOpinion,
   InvestmentScoreBreakdown,
   MacroIndicator,
   NewsItem,
+  NewsSentiment,
+  QuarterlyFinancialPoint,
+  ScenarioSet,
+  TechnicalIndicators,
 } from "../types";
 
 // 최신 모델명은 Anthropic 문서를 확인해 필요시 ANTHROPIC_MODEL 환경변수로 교체하세요.
@@ -20,12 +25,12 @@ function getClient(): Anthropic {
   return new Anthropic({ apiKey });
 }
 
-async function askForJson<T>(system: string, prompt: string): Promise<T> {
+async function askForJson<T>(system: string, prompt: string, maxTokens = 1500): Promise<T> {
   const client = getClient();
   const model = process.env.ANTHROPIC_MODEL || DEFAULT_MODEL;
   const res = await client.messages.create({
     model,
-    max_tokens: 1500,
+    max_tokens: maxTokens,
     system,
     messages: [{ role: "user", content: prompt }],
   });
@@ -200,10 +205,14 @@ export interface StockReportAiResult {
   score: InvestmentScoreBreakdown;
   opinion: InvestmentOpinion;
   opinionReason: string;
+  newsSentiment: NewsSentiment;
+  scenarios: ScenarioSet;
 }
 
 /**
- * 기업 종합 리포트(강점/약점, 6개 서브점수, 투자의견)를 한 번의 호출로 생성한다.
+ * 기업 종합 리포트(강점/약점, 6개 서브점수, 투자의견, 뉴스 감성분석, Bull/Base/Bear 시나리오)를
+ * 한 번의 호출로 생성한다. 별도 호출로 나누지 않고 하나로 묶은 이유는 AI 호출 횟수(=비용)를
+ * Sprint 1과 동일하게 2회로 유지하기 위함이다.
  * total/rating/opinion은 AI가 준 서브점수를 코드에서 결정적으로 계산해, 밴드 기준
  * (90+ 적극매수 / 80+ 매수 / 70+ 관망 / 60+ 비추천 / 60미만 위험)이 항상 일관되게 한다.
  */
@@ -213,8 +222,22 @@ export async function generateStockReport(params: {
   briefing: BriefingSummary;
   momentum: { available: boolean; summary: string };
   supplyDemandAvailable: boolean;
+  technicals: TechnicalIndicators | null;
+  quarterlyFinancials: QuarterlyFinancialPoint[];
+  earningsCalendar: EarningsCalendar | null;
+  newsForSentiment: NewsItem[];
 }): Promise<StockReportAiResult> {
-  const { company, profile, briefing, momentum, supplyDemandAvailable } = params;
+  const {
+    company,
+    profile,
+    briefing,
+    momentum,
+    supplyDemandAvailable,
+    technicals,
+    quarterlyFinancials,
+    earningsCalendar,
+    newsForSentiment,
+  } = params;
   const system =
     "너는 개인 투자자 본인을 위해 종합 투자 리포트를 작성하는 애널리스트다. " +
     "판단은 항상 근거(재무 수치, 뉴스, 가격 흐름)와 함께 제시하고, 데이터가 없거나 불확실하면 " +
@@ -222,6 +245,27 @@ export async function generateStockReport(params: {
 
   const fmtPct = (v: number | null) => (v == null ? "N/A" : `${(v * 100).toFixed(1)}%`);
   const fmtNum = (v: number | null) => (v == null ? "N/A" : v.toLocaleString());
+
+  const technicalsText = technicals
+    ? `RSI(14): ${fmtNum(technicals.rsi14)}, MACD: ${
+        technicals.macd ? `${technicals.macd.value.toFixed(2)} (시그널선 대비 ${technicals.macd.histogram >= 0 ? "+" : ""}${technicals.macd.histogram.toFixed(2)})` : "N/A"
+      }, 20일선: ${fmtNum(technicals.sma20)}, 50일선: ${fmtNum(technicals.sma50)}, 추세: ${technicals.trendLabel}`
+    : "데이터 없음";
+
+  const quarterlyText = quarterlyFinancials.length
+    ? quarterlyFinancials
+        .map((q) => `${q.quarter}: 매출 ${fmtNum(q.revenue)}, 순이익 ${fmtNum(q.netIncome)}, EPS ${fmtNum(q.eps)}`)
+        .join(" / ")
+    : "데이터 없음";
+
+  const calendarText = earningsCalendar?.nextEarningsDate
+    ? `다음 실적발표 예정일 ${earningsCalendar.nextEarningsDate} (컨센서스 EPS ${fmtNum(
+        earningsCalendar.epsEstimate
+      )}, 매출 ${fmtNum(earningsCalendar.revenueEstimate)})`
+    : "예정된 실적발표 정보 없음";
+
+  const newsListText =
+    newsForSentiment.map((n) => `- ${n.title}`).join("\n") || "(뉴스 없음)";
 
   const prompt = `기업: ${company.name} (${company.market}) ${profile.ticker ? `[${profile.ticker}]` : ""}
 섹터/산업: ${profile.sector ?? "N/A"} / ${profile.industry ?? "N/A"}
@@ -233,14 +277,20 @@ PER: ${fmtNum(profile.per)}, PBR: ${fmtNum(profile.pbr)}, ROE: ${fmtPct(profile.
   )}, 시가총액: ${fmtNum(profile.marketCap)}
 
 가격 모멘텀: ${momentum.available ? momentum.summary : "데이터 없음 (기술점수는 뉴스/공시 기반으로만 보수적으로 추정)"}
+기술적 지표: ${technicalsText}
+최근 분기 실적(매출/순이익/EPS, 영업이익은 데이터 소스 결측으로 미제공): ${quarterlyText}
+${calendarText}
 
 뉴스 요약: ${briefing.newsSummary}
 공시 요약: ${briefing.disclosureSummary}
 최근 트렌드: ${briefing.trends.join(", ") || "없음"}
 
+뉴스 감성분석용 원문 목록:
+${newsListText}
+
 ${supplyDemandAvailable ? "" : "주의: 외국인/기관 수급 실데이터는 제공되지 않음. supplyDemand 점수는 뉴스/공시에 나타난 수급 관련 언급만으로 보수적으로 추정할 것 (근거 부족 시 50점 근처로)."}
 
-아래 JSON 스키마로만 응답해 (각 점수는 0~100 정수):
+아래 JSON 스키마로만 응답해 (각 점수는 0~100 정수, 감성분석 비율의 합은 100):
 {
   "strengths": ["강점 1", "강점 2", "강점 3"],
   "weaknesses": ["약점 1", "약점 2"],
@@ -253,7 +303,18 @@ ${supplyDemandAvailable ? "" : "주의: 외국인/기관 수급 실데이터는 
     "growth": 0~100,
     "valuation": 0~100
   },
-  "opinionReason": "종합 의견 3~4문장. 재무/뉴스/가격흐름을 근거로 들어 설명"
+  "opinionReason": "종합 의견 3~4문장. 재무/뉴스/가격흐름을 근거로 들어 설명",
+  "newsSentiment": {
+    "positivePct": 0~100,
+    "neutralPct": 0~100,
+    "negativePct": 0~100,
+    "summary": "뉴스 톤에 대한 한 문장 요약"
+  },
+  "scenarios": {
+    "bull": { "targetPrice": 숫자 (현재가 기준 통화, 알 수 없으면 null), "rationale": "낙관 시나리오 근거 1~2문장" },
+    "base": { "targetPrice": 숫자, "rationale": "기본 시나리오 근거 1~2문장" },
+    "bear": { "targetPrice": 숫자, "rationale": "비관 시나리오 근거 1~2문장" }
+  }
 }`;
 
   const result = await askForJson<{
@@ -269,7 +330,9 @@ ${supplyDemandAvailable ? "" : "주의: 외국인/기관 수급 실데이터는 
       valuation: number;
     };
     opinionReason: string;
-  }>(system, prompt);
+    newsSentiment: NewsSentiment;
+    scenarios: ScenarioSet;
+  }>(system, prompt, 2200);
 
   const { financial, technical, news, supplyDemand, growth, valuation } = result.scores;
   const total = Math.round((financial + technical + news + supplyDemand + growth + valuation) / 6);
@@ -290,5 +353,7 @@ ${supplyDemandAvailable ? "" : "주의: 외국인/기관 수급 실데이터는 
     },
     opinion: opinionFromScore(total),
     opinionReason: result.opinionReason,
+    newsSentiment: result.newsSentiment,
+    scenarios: result.scenarios,
   };
 }
